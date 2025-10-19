@@ -1,4 +1,4 @@
-# EmoSense Lite — Multimodal Mental Health Companion (Prototype)
+# EmoSense Lite  Multimodal Mental Health Companion (Prototype)
 
 ## About
 
@@ -147,3 +147,4 @@ Design notes
 ## Contact and Contribution
 
 Contributions welcome. Open issues for bugs and feature requests, and send pull requests with focused changes. Keep changes small and include tests where possible.
+
