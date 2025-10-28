@@ -143,42 +143,37 @@ def analyze_facial_emotion(frame: Any) -> dict:
 
 def analyze_audio_emotion(wav_path: str) -> dict:
     """
-    Loads a wav file, extracts MFCCs and uses a simple heuristic to predict emotion.
-    For prototype purposes, we'll use energy and pitch heuristics to map to emotions.
+    Enhanced audio emotion detection using trained models and advanced features.
     """
-    # Try to run an HF audio-classification pipeline if available; otherwise use heuristic
     global _audio_pipeline
     if _audio_pipeline is None:
         try:
-            _audio_pipeline = pipeline("audio-classification", model=_audio_model_name)
+            _audio_pipeline = pipeline("audio-classification", model="ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition")
         except Exception:
             _audio_pipeline = None
 
     if _audio_pipeline is not None:
         try:
             hf_out = _audio_pipeline(wav_path)
-            # hf_out can be list of {'label':..., 'score':...}
-            # Map common emotion labels to our EMOTIONS vector heuristically
             probs = [0.0] * len(EMOTIONS)
             for item in hf_out:
                 label = item.get("label", "").lower()
                 score = float(item.get("score", 0.0))
-                if "happy" in label or "joy" in label or "positive" in label:
+                if any(word in label for word in ["happy", "joy", "positive"]):
                     probs[0] += score
-                elif "sad" in label or "sadness" in label or "negative" in label:
+                elif any(word in label for word in ["sad", "sadness", "negative"]):
                     probs[1] += score
-                elif "angry" in label or "anger" in label:
+                elif any(word in label for word in ["angry", "anger", "mad"]):
                     probs[2] += score
-                elif "surprise" in label or "surpr" in label:
+                elif any(word in label for word in ["surprise", "surprised"]):
                     probs[4] += score
                 else:
                     probs[3] += score
             s = sum(probs)
             if s > 0:
                 probs = [p / s for p in probs]
-            return {"probs": probs, "features": {"source": "hf_audio"}}
+            return {"probs": probs, "features": {"source": "wav2vec2_model"}}
         except Exception:
-            # fallback to heuristic if HF pipeline fails
             _audio_pipeline = None
 
     if librosa is None:
@@ -194,28 +189,59 @@ def analyze_audio_emotion(wav_path: str) -> dict:
         probs = [0.0] * len(EMOTIONS)
         probs[3] = 1.0
         return {"probs": probs, "features": {"error": "file_not_found"}}
-    # Extract MFCC mean
+    # Enhanced feature extraction
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     mfcc_mean = np.mean(mfcc, axis=1)
-    # Simple heuristics: energy and zero-crossing rate
+    
+    # Additional features for better emotion detection
     energy = np.sqrt(np.mean(y ** 2))
     zcr = np.mean(librosa.feature.zero_crossing_rate(y))
+    spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)
+    spectral_centroid_mean = np.mean(spectral_centroids)
+    
+    try:
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    except:
+        tempo = 120.0
+    
     probs = np.zeros(len(EMOTIONS), dtype=float)
-    # Heuristic mapping (toy): high energy & high zcr -> angry or happy; low energy -> sad; medium -> neutral
-    if energy > 0.03 and zcr > 0.1:
-        probs[2] = 0.5  # angry
-        probs[0] = 0.4  # happy
-        probs[3] = 0.1
-    elif energy > 0.02:
-        probs[0] = 0.6
-        probs[4] = 0.2
-        probs[3] = 0.2
-    else:
-        probs[1] = 0.7
-        probs[3] = 0.3
-    # normalize
+    
+    # Enhanced emotion classification
+    tempo_normalized = tempo / 120.0
+    
+    # Happy: High energy, moderate-high tempo, high spectral centroid
+    happy_score = min(1.0, (energy * 8) * min(tempo_normalized, 1.5) * (spectral_centroid_mean / 2000))
+    
+    # Sad: Low energy, low tempo, low spectral features
+    sad_score = min(1.0, (1 - energy * 4) * (1 - tempo_normalized * 0.7))
+    
+    # Angry: High energy, high ZCR, variable tempo
+    angry_score = min(1.0, (energy * 10) * (zcr * 8))
+    
+    # Surprised: High energy, high spectral centroid
+    surprised_score = min(1.0, (energy * 6) * (spectral_centroid_mean / 3000))
+    
+    # Neutral: Moderate values
+    neutral_score = max(0.1, 1.0 - max(happy_score, sad_score, angry_score, surprised_score))
+    
+    probs[0] = happy_score
+    probs[1] = sad_score
+    probs[2] = angry_score
+    probs[3] = neutral_score
+    probs[4] = surprised_score
+    
+    # Normalize
     probs = probs / probs.sum()
-    return {"probs": probs.tolist(), "features": {"energy": float(energy), "zcr": float(zcr)}}
+    
+    features = {
+        "energy": float(energy),
+        "zcr": float(zcr),
+        "tempo": float(tempo),
+        "spectral_centroid": float(spectral_centroid_mean),
+        "source": "enhanced_mfcc"
+    }
+    
+    return {"probs": probs.tolist(), "features": features}
 
 
 def fuse_modalities(facial_probs, audio_probs, text_probs, weights=(0.4, 0.3, 0.3)):

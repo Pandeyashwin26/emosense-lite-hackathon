@@ -20,6 +20,7 @@ import tempfile
 import os
 from datetime import datetime
 from utils.emotion_utils import analyze_facial_emotion, analyze_audio_emotion, analyze_text_sentiment, fuse_modalities, log_to_csv, map_label_to_score
+from utils.llm_feedback import generate_personalized_feedback, get_trend_insights, check_crisis_indicators
 
 st.set_page_config(page_title="EmoSense Lite", layout="wide")
 
@@ -152,12 +153,29 @@ with tabs[3]:
         except Exception:
             # fallback: display raw probs
             st.write("Probs:", fused.get("probs"))
-        # Suggestion
-        score = map_label_to_score(fused.get("label"))
-        if score < -0.2:
-            st.warning("It seems you may be feeling down or stressed. Try a 4-4-4 deep breathing exercise or write for 5 minutes.")
+        # Enhanced LLM-powered feedback
+        user_context = {"hour": datetime.now().hour}
+        feedback = generate_personalized_feedback(fused, user_context)
+        
+        # Display personalized feedback
+        if fused.get("label") in ["sad", "angry"]:
+            st.warning(f"💙 {feedback['message']}")
+        elif fused.get("label") == "happy":
+            st.success(f"🌟 {feedback['message']}")
         else:
-            st.success("You're looking okay — keep going! Here's a motivational quote:\n\"The expert in anything was once a beginner.\"")
+            st.info(f"⚖️ {feedback['message']}")
+        
+        # Show suggestions
+        if feedback.get('suggestions'):
+            st.subheader("💡 Personalized Suggestions")
+            for i, suggestion in enumerate(feedback['suggestions'][:3], 1):
+                st.write(f"{i}. {suggestion}")
+        
+        # Show resources if available
+        if feedback.get('resources'):
+            with st.expander("📚 Helpful Resources"):
+                for resource in feedback['resources']:
+                    st.write(f"• {resource}")
         # Log
         row = {
             "timestamp": datetime.utcnow().isoformat(),
@@ -169,20 +187,56 @@ with tabs[3]:
         }
         log_to_csv(row)
 
-    # show log preview
-    st.subheader("Recent log")
+    # Enhanced log analysis with trends
+    st.subheader("📈 Emotion Trends & Analysis")
     try:
         import pandas as pd  # type: ignore
         if os.path.exists("emotions_log.csv"):
             df_log = pd.read_csv("emotions_log.csv")
-            st.dataframe(df_log.tail(10))
+            
+            # Show recent entries
+            st.write("**Recent Entries:**")
+            st.dataframe(df_log.tail(5))
+            
+            # Trend analysis
+            if len(df_log) >= 3:
+                history = df_log.to_dict('records')
+                trends = get_trend_insights(history)
+                
+                st.write("**Trend Analysis:**")
+                if trends['trend'] == 'positive_pattern':
+                    st.success(f"🌈 {trends['message']}")
+                elif trends['trend'] == 'concerning_pattern':
+                    st.warning(f"⚠️ {trends['message']}")
+                    st.write(f"**Recommendation:** {trends['recommendation']}")
+                else:
+                    st.info(f"📊 {trends['message']}")
+                
+                # Crisis check
+                if st.session_state.get("last_fused"):
+                    crisis_alert = check_crisis_indicators(st.session_state["last_fused"], history)
+                    if crisis_alert:
+                        st.error("🆘 **Important Notice**")
+                        st.error(crisis_alert['message'])
+                        with st.expander("🆘 Crisis Resources - Click for Help"):
+                            st.write("**Immediate Support:**")
+                            for resource in crisis_alert['resources']['crisis_hotlines']:
+                                st.write(f"• {resource}")
+            
+            # Emotion distribution chart
+            if len(df_log) >= 5:
+                emotion_counts = df_log['fused_label'].value_counts()
+                st.write("**Emotion Distribution (Recent Sessions):**")
+                st.bar_chart(emotion_counts)
+                
         else:
             st.info("No log yet. Fuse and log to populate data.")
-    except Exception:
+    except Exception as e:
+        st.error(f"Error loading trend analysis: {str(e)}")
         # fallback: show raw file tail
         if os.path.exists("emotions_log.csv"):
             with open("emotions_log.csv", "r", encoding="utf-8") as f:
-                lines = f.readlines()[-10:]
+                lines = f.readlines()[-5:]
             st.text("".join(lines))
         else:
             st.info("No log yet. Fuse and log to populate data.")
