@@ -8,6 +8,8 @@ This project is developed for the **Multi Modal AI Hackathon** organized by **In
 
 **Team Leader:** Ashwin Pandey (participating in the hackathon)
 
+**Team Philosophy:** "Quality over Quantity" - Focused solo development enabling rapid iteration, unified vision, and deep technical ownership across all components. This approach allowed for seamless integration of complex multimodal AI systems without coordination overhead.
+
 ## Overview
 
 This is a lightweight prototype that demonstrates multimodal emotion detection using webcam (face), microphone (audio), and text input. It provides a Streamlit UI with tabs for capturing each modality, fuses the results, and displays feedback and logging.
